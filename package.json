@@ -1,0 +1,14 @@
+{
+  "name": "js-aria-encrypt",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/formegusto/js-aria-encrypt.git",
+  "author": "formegusto <formegusto@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^16.11.11"
+  },
+  "scripts": {
+    "start": "tsc && node dist"
+  }
+}
