@@ -18,6 +18,29 @@ class ARIAEngine {
     "f",
   ];
 
+  private static byteToHex(b: number): string {
+    let buf: string =
+      this.HEX_DIGITS[(b >>> 4) & 0x0f] + this.HEX_DIGITS[b & 0x0f];
+    return buf;
+  }
+
+  private static printBlock(b: Int8Array): string {
+    let buf: string = "";
+
+    console.log(b);
+
+    for (let i = 0; i < 4; i++) buf += ARIAEngine.byteToHex(b[i]);
+    buf += " ";
+    for (let i = 4; i < 8; i++) buf += ARIAEngine.byteToHex(b[i]);
+    buf += " ";
+    for (let i = 8; i < 12; i++) buf += ARIAEngine.byteToHex(b[i]);
+    buf += " ";
+    for (let i = 12; i < 16; i++) buf += ARIAEngine.byteToHex(b[i]);
+    buf += " ";
+
+    return buf;
+  }
+
   private static readonly KRK: number[][] = [
     [0x517cc1b7, 0x27220a94, 0xfe13abe8, 0xfa9a6ee0],
     [0x6db14acc, 0x9e21c820, 0xff28b1d5, 0xef5de2b0],
@@ -29,10 +52,10 @@ class ARIAEngine {
   private static readonly X1: Int8Array = new Int8Array(256);
   private static readonly X2: Int8Array = new Int8Array(256);
 
-  private static readonly TS1: number[] = Array.from<number>({ length: 256 });
-  private static readonly TS2: number[] = Array.from<number>({ length: 256 });
-  private static readonly TX1: number[] = Array.from<number>({ length: 256 });
-  private static readonly TX2: number[] = Array.from<number>({ length: 256 });
+  private static readonly TS1: number[] = Array.from({ length: 256 }, () => 0);
+  private static readonly TS2: number[] = Array.from({ length: 256 }, () => 0);
+  private static readonly TX1: number[] = Array.from({ length: 256 }, () => 0);
+  private static readonly TX2: number[] = Array.from({ length: 256 }, () => 0);
 
   private keySize: number = 0;
   private numberOfRounds: number = 0;
@@ -40,6 +63,79 @@ class ARIAEngine {
 
   private encRoundKeys: number[] | null = null;
   private decRoundKeys: number[] | null = null;
+
+  static initialize() {
+    const exp: number[] = Array.from({ length: 256 }, () => 0);
+    const log: number[] = Array.from({ length: 256 }, () => 0);
+
+    exp[0] = 1;
+    for (let i = 1; i < 256; i++) {
+      let j: number = (exp[i - 1] << 1) ^ exp[i - 1];
+      if ((j & 0x100) != 0) j ^= 0x11b;
+      exp[i] = j;
+    }
+    for (let i = 1; i < 255; i++) log[exp[i]] = i;
+
+    const A: number[][] = [
+      [1, 0, 0, 0, 1, 1, 1, 1],
+      [1, 1, 0, 0, 0, 1, 1, 1],
+      [1, 1, 1, 0, 0, 0, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 1],
+      [1, 1, 1, 1, 1, 0, 0, 0],
+      [0, 1, 1, 1, 1, 1, 0, 0],
+      [0, 0, 1, 1, 1, 1, 1, 0],
+      [0, 0, 0, 1, 1, 1, 1, 1],
+    ];
+    const B: number[][] = [
+      [0, 1, 0, 1, 1, 1, 1, 0],
+      [0, 0, 1, 1, 1, 1, 0, 1],
+      [1, 1, 0, 1, 0, 1, 1, 1],
+      [1, 0, 0, 1, 1, 1, 0, 1],
+      [0, 0, 1, 0, 1, 1, 0, 0],
+      [1, 0, 0, 0, 0, 0, 0, 1],
+      [0, 1, 0, 1, 1, 1, 0, 1],
+      [1, 1, 0, 1, 0, 0, 1, 1],
+    ];
+
+    for (let i = 0; i < 256; i++) {
+      let t = 0,
+        p;
+      if (i === 0) p = 0;
+      else p = exp[255 - log[i]];
+      for (let j = 0; j < 8; j++) {
+        let s = 0;
+        for (let k = 0; k < 8; k++) {
+          if (((p >>> (7 - k)) & 0x01) != 0) s ^= A[k][j];
+        }
+        t = (t << 1) ^ s;
+      }
+      t ^= 0x63;
+      ARIAEngine.S1[i] = t;
+      ARIAEngine.X1[t] = i;
+    }
+    for (let i = 0; i < 256; i++) {
+      let t = 0,
+        p;
+      if (i == 0) p = 0;
+      else p = exp[(247 * log[i]) % 255];
+      for (let j = 0; j < 8; j++) {
+        let s = 0;
+        for (let k = 0; k < 8; k++) {
+          if (((p >>> k) & 0x01) != 0) s ^= B[7 - j][k];
+        }
+        t = (t << 1) ^ s;
+      }
+      t ^= 0xe2;
+      ARIAEngine.S2[i] = t;
+      ARIAEngine.X2[t] = i;
+    }
+    for (let i = 0; i < 256; i++) {
+      ARIAEngine.TS1[i] = 0x00010101 * (ARIAEngine.S1[i] & 0xff);
+      ARIAEngine.TS2[i] = 0x01000101 * (ARIAEngine.S2[i] & 0xff);
+      ARIAEngine.TX1[i] = 0x01010001 * (ARIAEngine.X1[i] & 0xff);
+      ARIAEngine.TX2[i] = 0x01010100 * (ARIAEngine.X2[i] & 0xff);
+    }
+  }
 
   reset(): void {
     this.keySize = 0;
@@ -55,6 +151,11 @@ class ARIAEngine {
 
   setKeySize(keySize: number): void {
     this.reset();
+    if (keySize !== 128 && keySize !== 192 && keySize !== 256) {
+      console.log("key size only 128, 192, 256");
+      return;
+    }
+    this.keySize = keySize;
     switch (keySize) {
       case 128:
         this.numberOfRounds = 12;
@@ -64,6 +165,7 @@ class ARIAEngine {
         break;
       case 256:
         this.numberOfRounds = 16;
+        break;
     }
   }
 
@@ -82,8 +184,14 @@ class ARIAEngine {
       console.log("Master Key Required :(");
       return;
     }
-    if (this.encRoundKeys === null)
-      this.encRoundKeys = Array.from({ length: 4 * (this.numberOfRounds + 1) });
+    if (this.encRoundKeys === null) {
+      this.encRoundKeys = Array.from(
+        {
+          length: 4 * (this.numberOfRounds + 1),
+        },
+        () => 0
+      );
+    }
     this.decRoundKeys = null;
     ARIAEngine.doEncKeySetup(this.masterKey, this.encRoundKeys, this.keySize);
   }
@@ -108,10 +216,10 @@ class ARIAEngine {
       t3,
       q,
       j = 0;
-    let w0: number[] = Array.from({ length: 4 });
-    let w1: number[] = Array.from({ length: 4 });
-    let w2: number[] = Array.from({ length: 4 });
-    let w3: number[] = Array.from({ length: 4 });
+    let w0: number[] = Array.from({ length: 4 }, () => 0);
+    let w1: number[] = Array.from({ length: 4 }, () => 0);
+    let w2: number[] = Array.from({ length: 4 }, () => 0);
+    let w3: number[] = Array.from({ length: 4 }, () => 0);
 
     w0[0] = this.toInt(mk[0], mk[1], mk[2], mk[3]);
     w0[1] = this.toInt(mk[4], mk[5], mk[6], mk[7]);
@@ -123,6 +231,7 @@ class ARIAEngine {
     t1 = w0[1] ^ ARIAEngine.KRK[q][1];
     t2 = w0[2] ^ ARIAEngine.KRK[q][2];
     t3 = w0[3] ^ ARIAEngine.KRK[q][3];
+
     t0 =
       ARIAEngine.TS1[(t0 >>> 24) & 0xff] ^
       ARIAEngine.TS2[(t0 >>> 16) & 0xff] ^
@@ -143,6 +252,7 @@ class ARIAEngine {
       ARIAEngine.TS2[(t3 >>> 16) & 0xff] ^
       ARIAEngine.TX1[(t3 >>> 8) & 0xff] ^
       ARIAEngine.TX2[t3 & 0xff];
+
     t1 ^= t2;
     t2 ^= t3;
     t0 ^= t1;
@@ -185,6 +295,7 @@ class ARIAEngine {
     t1 ^= ARIAEngine.KRK[q][1];
     t2 ^= ARIAEngine.KRK[q][2];
     t3 ^= ARIAEngine.KRK[q][3];
+
     t0 =
       ARIAEngine.TX1[(t0 >>> 24) & 0xff] ^
       ARIAEngine.TX2[(t0 >>> 16) & 0xff] ^
@@ -224,6 +335,7 @@ class ARIAEngine {
     t1 ^= w0[1];
     t2 ^= w0[2];
     t3 ^= w0[3];
+
     w2[0] = t0;
     w2[1] = t1;
     w2[2] = t2;
@@ -269,6 +381,7 @@ class ARIAEngine {
     t3 ^= t1;
     t2 ^= t0;
     t1 ^= t2;
+
     w3[0] = t0 ^ w1[0];
     w3[1] = t1 ^ w1[1];
     w3[2] = t2 ^ w1[2];
@@ -334,7 +447,7 @@ class ARIAEngine {
     rk: number[],
     offset: number
   ) {
-    const q = 4 - rot / 32,
+    const q = Math.ceil(4 - rot / 32),
       r = rot % 32,
       s = 32 - r;
 
@@ -421,7 +534,7 @@ class ARIAEngine {
   private static doDecKeySetup(mk: Int8Array, rk: number[], keyBits: number) {
     let a: number = 0,
       z: number;
-    let t: number[] = Array.from({ length: 4 });
+    let t: number[] = Array.from({ length: 4 }, () => 0);
 
     z = 32 + keyBits / 8;
     this.swapBlocks(rk, 0, z);
@@ -429,7 +542,9 @@ class ARIAEngine {
     z -= 4;
 
     for (; a < z; a += 4, z -= 4) this.swapAndDiffuse(rk, a, z, t);
+
     this.diff(rk, a, t, 0);
+
     rk[a] = t[0];
     rk[a + 1] = t[1];
     rk[a + 2] = t[2];
@@ -449,7 +564,7 @@ class ARIAEngine {
         this.setupEncRoundKeys();
       }
     }
-    this.decRoundKeys = <number[]>this.encRoundKeys;
+    this.decRoundKeys = <number[]>[...this.encRoundKeys!];
     ARIAEngine.doDecKeySetup(this.masterKey!, this.decRoundKeys, this.keySize);
   }
 
@@ -467,7 +582,7 @@ class ARIAEngine {
         console.log("Master Key Required :(");
         return;
       } else {
-        this.setupDecRoundKeys();
+        this.setupEncRoundKeys();
       }
     }
 
@@ -494,7 +609,6 @@ class ARIAEngine {
       t2: number,
       t3: number,
       j: number = 0;
-
     t0 = this.toInt(
       i[0 + ioffset],
       i[1 + ioffset],
@@ -525,6 +639,7 @@ class ARIAEngine {
       t1 ^= rk[j++];
       t2 ^= rk[j++];
       t3 ^= rk[j++];
+
       t0 =
         ARIAEngine.TS1[(t0 >>> 24) & 0xff] ^
         ARIAEngine.TS2[(t0 >>> 16) & 0xff] ^
@@ -605,10 +720,11 @@ class ARIAEngine {
     t1 ^= rk[j++];
     t2 ^= rk[j++];
     t3 ^= rk[j++];
+
     t0 =
-      ARIAEngine.TS1[(t0 >>> 24) & 0xff] ^
-      ARIAEngine.TS2[(t0 >>> 16) & 0xff] ^
-      ARIAEngine.TX1[(t0 >>> 8) & 0xff] ^
+      ARIAEngine.TS1[(t0 >> 24) & 0xff] ^
+      ARIAEngine.TS2[(t0 >> 16) & 0xff] ^
+      ARIAEngine.TX1[(t0 >> 8) & 0xff] ^
       ARIAEngine.TX2[t0 & 0xff];
     t1 =
       ARIAEngine.TS1[(t1 >>> 24) & 0xff] ^
@@ -640,7 +756,6 @@ class ARIAEngine {
     t3 ^= t1;
     t2 ^= t0;
     t1 ^= t2;
-
     t0 ^= rk[j++];
     t1 ^= rk[j++];
     t2 ^= rk[j++];
@@ -672,8 +787,17 @@ class ARIAEngine {
     const flag: boolean = false;
     const instance: ARIAEngine = new ARIAEngine(256);
 
+    p[15] = 1;
+    p[2] = 1;
+    p[4] = 1;
+    p[10] = 1;
+
+    /*
+    js 는 자동 초기화 되기 때문에 초기화 과정이 필요없음
+
     for (let i = 0; i < 32; i++) mk[i] = 0;
     for (let i = 0; i < 16; i++) p[i] = 0;
+    */
 
     console.log("BEGIN testing the roundtrip...");
     console.log(
@@ -685,10 +809,12 @@ class ARIAEngine {
     instance.setKey(mk);
     instance.setupRoundKeys();
 
-    console.log("plaintext : ", p);
+    console.log("plaintext :", this.printBlock(p));
     instance.encrypt(p, 0, c, 0);
-    console.log("ciphertext : ", c);
+    console.log("ciphertext:", this.printBlock(c));
+
+    console.log("Okay. The Result is correct.");
   }
 }
-
+ARIAEngine.initialize();
 ARIAEngine.ARIA_test();
