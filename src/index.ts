@@ -837,7 +837,65 @@ class ARIAEngine {
     console.log("decrypted :", this.printBlock(p));
     flag = false;
 
-    console.log("Okay. The Result is correct.");
+    for (let i = 0; i < 16; i++) if (p[i] != 0) flag = true;
+    if (flag) console.log("The Result is Incorrect!");
+    else console.log("Okay. The result is correct.");
+    console.log("END testing the roundtrip.\n");
+
+    const TEST_NUM: number = 0x800000;
+    console.log("BEGIN speed measurement...");
+
+    for (let i = 0; i < 16; i++) mk[i] = i;
+    console.log(" First, EncKeySetup():");
+    console.log(" masterkey:", this.printBlock(mk));
+
+    // encRoundKeys 성능 테스트
+    instance.reset();
+    instance.setKeySize(128);
+    instance.setKey(mk);
+    for (let i = 0; i < 1000; i++) instance.setupEncRoundKeys();
+    let start: Date = new Date();
+    for (let i = 0; i < TEST_NUM; i++) instance.setupEncRoundKeys();
+    let fin: Date = new Date();
+    let lapse: number = (fin.getTime() - start.getTime()) / 1000;
+    console.log(" time lapsed:", lapse, "sec.");
+    console.log(
+      " speed: ",
+      (TEST_NUM * 128) / (lapse * 1024 * 1024),
+      "megabits/sec. \n"
+    );
+
+    console.log(" Next, Crypt():");
+    for (let i = 0; i < 16; i++) p[i] = (i << 4) ^ i;
+    console.log(" plaintext :", this.printBlock(p));
+
+    for (let i = 0; i < 1000; i++) instance.encrypt(p, 0, c, 0);
+    start = new Date();
+    for (let i = 0; i < TEST_NUM; i++) instance.encrypt(p, 0, c, 0);
+    fin = new Date();
+    console.log(" ciphertext:", this.printBlock(c));
+    lapse = (fin.getTime() - start.getTime()) / 1000;
+    console.log(" time lapsed:", lapse, "sec.");
+    console.log(
+      " speed: ",
+      (TEST_NUM * 128) / (lapse * 1024 * 1024),
+      "megabits/sec. \n"
+    );
+
+    console.log(" Finally, DecKeySetup():");
+    for (let i = 0; i < 1000; i++) instance.setupDecRoundKeys();
+    start = new Date();
+    for (let i = 0; i < 1000; i++) instance.setupDecRoundKeys();
+    fin = new Date();
+    lapse = (fin.getTime() - start.getTime()) / 1000;
+    console.log(" time lapsed:", lapse, "sec.");
+    console.log(
+      " speed: ",
+      (TEST_NUM * 128) / (lapse * 1024 * 1024),
+      "megabits/sec. \n"
+    );
+
+    console.log("END speed measurement.");
   }
 }
 ARIAEngine.initialize();
