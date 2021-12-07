@@ -27,8 +27,6 @@ class ARIAEngine {
   private static printBlock(b: Int8Array): string {
     let buf: string = "";
 
-    console.log(b);
-
     for (let i = 0; i < 4; i++) buf += ARIAEngine.byteToHex(b[i]);
     buf += " ";
     for (let i = 4; i < 8; i++) buf += ARIAEngine.byteToHex(b[i]);
@@ -596,6 +594,29 @@ class ARIAEngine {
     );
   }
 
+  decrypt(i: Int8Array, ioffset: number, o: Int8Array, ooffset: number): void {
+    if (this.keySize === 0) {
+      console.log("KeySize Required :(");
+      return;
+    }
+    if (this.encRoundKeys === null) {
+      if (this.masterKey === null) {
+        console.log("Master Key Required :(");
+        return;
+      } else {
+        this.setupDecRoundKeys();
+      }
+    }
+    ARIAEngine.doCrypt(
+      i,
+      ioffset,
+      this.decRoundKeys!,
+      this.numberOfRounds,
+      o,
+      ooffset
+    );
+  }
+
   private static doCrypt(
     i: Int8Array,
     ioffset: number,
@@ -784,7 +805,7 @@ class ARIAEngine {
     const c: Int8Array = new Int8Array(16);
     const mk: Int8Array = new Int8Array(32);
 
-    const flag: boolean = false;
+    let flag: boolean = false;
     const instance: ARIAEngine = new ARIAEngine(256);
 
     p[15] = 1;
@@ -812,6 +833,9 @@ class ARIAEngine {
     console.log("plaintext :", this.printBlock(p));
     instance.encrypt(p, 0, c, 0);
     console.log("ciphertext:", this.printBlock(c));
+    instance.decrypt(c, 0, p, 0);
+    console.log("decrypted :", this.printBlock(p));
+    flag = false;
 
     console.log("Okay. The Result is correct.");
   }
